@@ -901,7 +901,7 @@ HTML = """<!DOCTYPE html>
 
   .settings-col { display: flex; flex-direction: column; align-items: stretch; gap: 8px; flex-shrink: 0; }
   .settings-btn {
-    justify-content: center;
+    justify-content: flex-start;
     display: flex; align-items: center; gap: 7px; font-family: inherit; font-size: .78rem; font-weight: 600;
     padding: 6px 12px; border-radius: 20px; cursor: pointer; transition: all .15s;
     background: var(--surface); white-space: nowrap;
