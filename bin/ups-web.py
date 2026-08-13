@@ -624,6 +624,93 @@ def api_metrics_csv():
         headers={'Content-Disposition': 'attachment; filename="ups-metrics.csv"'},
     )
 
+EMERGENCY_STATE_FILE = '/var/lib/nut/emergency.state'
+
+def test_proxmox_ssh(host, exclude_ct):
+    """SSH in sola lettura verso l'host Proxmox: verifica l'accesso e lista i CT che
+    ups-emergency.sh spegnerebbe (tutti tranne exclude_ct). Non modifica nulla."""
+    if not host:
+        return False, [], 'Host Proxmox non configurato'
+    try:
+        r = subprocess.run(
+            ['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5',
+             '-o', 'StrictHostKeyChecking=accept-new', f'root@{host}', 'pct list'],
+            capture_output=True, text=True, timeout=10,
+        )
+        if r.returncode != 0:
+            return False, [], (r.stderr or 'SSH fallito').strip()[:300]
+        cts = []
+        for line in r.stdout.strip().split('\n')[1:]:
+            parts = line.split()
+            if parts and parts[0] != str(exclude_ct):
+                cts.append({'ctid': parts[0], 'status': parts[1] if len(parts) > 1 else '?'})
+        return True, cts, None
+    except Exception as e:
+        return False, [], str(e)
+
+@app.route('/api/emergency/state')
+def api_emergency_state():
+    cfg = load_config()  # rilegge da disco: i valori possono essere stati cambiati dalla modal
+    host    = cfg.get('PROXMOX_HOST', '')
+    ct_id   = cfg.get('NUT_CT_ID', '')
+    low     = cfg.get('THRESHOLD_RUNTIME_LOW', '')
+    restore = cfg.get('THRESHOLD_RUNTIME_RESTORE', '')
+    ok, cts, err = test_proxmox_ssh(host, ct_id)
+    return jsonify({
+        'connected':          ok,
+        'active':             os.path.exists(EMERGENCY_STATE_FILE),
+        'proxmox_host':       host,
+        'nut_ct_id':          ct_id,
+        'threshold_low':      low,
+        'threshold_restore':  restore,
+        'affected_cts':       cts,
+        'error':              err,
+    })
+
+@app.route('/api/emergency/test', methods=['POST'])
+def api_emergency_test():
+    body  = request.get_json(silent=True) or {}
+    host  = (body.get('proxmox_host') or '').strip()
+    ct_id = (body.get('nut_ct_id') or '').strip()
+    ok, cts, err = test_proxmox_ssh(host, ct_id)
+    return jsonify({'ok': ok, 'affected_cts': cts, 'error': err})
+
+@app.route('/api/emergency/save', methods=['POST'])
+def api_emergency_save():
+    body    = request.get_json(silent=True) or {}
+    host    = (body.get('proxmox_host') or '').strip()
+    ct_id   = (body.get('nut_ct_id') or '').strip()
+    low     = (body.get('threshold_low') or '').strip()
+    restore = (body.get('threshold_restore') or '').strip()
+    if not host or not ct_id:
+        return jsonify({'ok': False, 'error': "Host Proxmox e ID del CT sono obbligatori"}), 400
+    try:
+        low_i, restore_i = int(low), int(restore)
+    except ValueError:
+        return jsonify({'ok': False, 'error': 'Le soglie devono essere numeri interi (secondi)'}), 400
+    if low_i <= 0 or restore_i <= 0:
+        return jsonify({'ok': False, 'error': 'Le soglie devono essere maggiori di zero'}), 400
+    if restore_i <= low_i:
+        return jsonify({'ok': False, 'error': 'La soglia di ripristino deve essere maggiore di quella di spegnimento'}), 400
+
+    save_config_values({
+        'PROXMOX_HOST':          host,
+        'NUT_CT_ID':             ct_id,
+        'THRESHOLD_RUNTIME_LOW':     str(low_i),
+        'THRESHOLD_RUNTIME_RESTORE': str(restore_i),
+    })
+
+    warning = None
+    try:
+        hw_low = float(get_ups_data().get('battery.runtime.low') or 0)
+        if hw_low and low_i <= hw_low:
+            warning = (f"Attenzione: la soglia di spegnimento ({low_i}s) e' minore o uguale a quella "
+                       f"hardware dell'UPS ({int(hw_low)}s): l'UPS potrebbe forzare il proprio shutdown "
+                       f"prima che i CT vengano spenti in ordine.")
+    except Exception:
+        pass
+    return jsonify({'ok': True, 'warning': warning})
+
 @app.route('/api/nut/state')
 def api_nut_state():
     stanza = read_ups_stanza()
@@ -815,6 +902,7 @@ HTML = """<!DOCTYPE html>
   /* Header right / settings buttons */
   .header-right { margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
   .header-right .subtitle { margin-left: 0; }
+  .settings-row { display: flex; flex-direction: row; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
   .settings-btn {
     display: flex; align-items: center; gap: 7px; font-family: inherit; font-size: .78rem; font-weight: 600;
     padding: 6px 12px; border-radius: 20px; cursor: pointer; transition: all .15s;
@@ -827,6 +915,9 @@ HTML = """<!DOCTYPE html>
   .settings-btn.state-on   { border: 1px solid rgba(63,185,80,.4);  color: var(--online); }
   .settings-btn.state-on   .sdot { background: var(--online); box-shadow: 0 0 5px var(--online); }
   .settings-btn.state-on:hover   { background: rgba(63,185,80,.1); }
+  .settings-btn.state-warn { border: 1px solid rgba(210,153,34,.5); color: var(--onbatt); }
+  .settings-btn.state-warn .sdot { background: var(--onbatt); box-shadow: 0 0 5px var(--onbatt); }
+  .settings-btn.state-warn:hover { background: rgba(210,153,34,.1); }
 
   /* Modal */
   .modal-overlay {
@@ -904,8 +995,11 @@ HTML = """<!DOCTYPE html>
       Aggiornato: <span id="last-update">—</span><br>
       Ora: <span id="live-clock">—</span>
     </span>
-    <button class="settings-btn state-off" id="tg-settings-btn"><span class="sdot"></span><span id="tg-settings-label">Collega Telegram</span></button>
-    <button class="settings-btn state-off" id="nut-settings-btn"><span class="sdot"></span><span id="nut-settings-label">Collega NUT</span></button>
+    <div class="settings-row">
+      <button class="settings-btn state-off" id="tg-settings-btn"><span class="sdot"></span><span id="tg-settings-label">Collega Telegram</span></button>
+      <button class="settings-btn state-off" id="nut-settings-btn"><span class="sdot"></span><span id="nut-settings-label">Collega NUT</span></button>
+      <button class="settings-btn state-off" id="emg-settings-btn"><span class="sdot"></span><span id="emg-settings-label">Emergenza UPS</span></button>
+    </div>
   </div>
 </header>
 
@@ -928,6 +1022,17 @@ HTML = """<!DOCTYPE html>
       <button class="modal-close" id="nut-modal-close">&times;</button>
     </div>
     <div class="modal-body" id="nut-modal-body"><!-- popolato via JS --></div>
+  </div>
+</div>
+
+<!-- Modal: Emergenza UPS -->
+<div class="modal-overlay" id="emg-modal-overlay">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>⚡ Emergenza UPS</h2>
+      <button class="modal-close" id="emg-modal-close">&times;</button>
+    </div>
+    <div class="modal-body" id="emg-modal-body"><!-- popolato via JS --></div>
   </div>
 </div>
 
@@ -1484,8 +1589,123 @@ nutBtn.addEventListener('click', openNutModal);
 document.getElementById('nut-modal-close').addEventListener('click', closeNutModal);
 nutOverlay.addEventListener('click', e => { if (e.target === nutOverlay) closeNutModal(); });
 
+// ── Emergenza UPS settings modal ─────────────────────────────────────────────
+const emgOverlay = document.getElementById('emg-modal-overlay');
+const emgBody    = document.getElementById('emg-modal-body');
+const emgBtn     = document.getElementById('emg-settings-btn');
+const emgLabel   = document.getElementById('emg-settings-label');
+let emgState = { connected: false, active: false };
+
+function setEmgButton(d) {
+  let cls = 'state-off', label = 'Emergenza UPS';
+  if (d.active)          { cls = 'state-warn'; label = 'Emergenza attiva'; }
+  else if (d.connected)  { cls = 'state-on';   label = 'Emergenza UPS'; }
+  emgBtn.className = 'settings-btn ' + cls;
+  emgLabel.textContent = label;
+}
+
+async function refreshEmgState() {
+  try {
+    const d = await fetch('/api/emergency/state').then(r => r.json());
+    emgState = d;
+    setEmgButton(d);
+  } catch(e) {}
+}
+
+function emgAffectedHtml(cts) {
+  if (!cts || !cts.length) return '<div class="modal-hint">Nessun altro CT trovato su questo host.</div>';
+  return '<div class="modal-hint">CT che verrebbero spenti in emergenza: ' +
+    cts.map(c => `#${c.ctid} (${c.status})`).join(', ') + '</div>';
+}
+
+function emgRenderIdle() {
+  const d = emgState;
+  emgBody.innerHTML = `
+    ${d.active ? `<div class="status-box warn">⚠️&nbsp; Emergenza attualmente <strong>attiva</strong>: gli altri CT sono stati spenti in attesa del ripristino corrente.</div>` : ''}
+    <div class="status-box ${d.connected ? 'ok' : 'error'}">
+      ${d.connected ? '✅&nbsp; Connessione SSH a Proxmox ok' : ('⚠️&nbsp; Connessione SSH non riuscita' + (d.error ? ': ' + d.error : ''))}
+    </div>
+    ${emgAffectedHtml(d.affected_cts)}
+    <div class="modal-hint">Questi valori controllano quando NutController spegne (e poi riaccende) tutti gli altri CT dell'host Proxmox durante un blackout prolungato. Le soglie sono in secondi di autonomia stimata (<code>battery.runtime</code>).</div>
+    <div>
+      <label for="emg-host-input">Host Proxmox (IP)</label>
+      <input type="text" id="emg-host-input" value="${d.proxmox_host || ''}" placeholder="192.168.0.70">
+    </div>
+    <div>
+      <label for="emg-ctid-input">ID di questo CT (escluso dallo spegnimento)</label>
+      <input type="text" id="emg-ctid-input" value="${d.nut_ct_id || ''}" placeholder="111">
+    </div>
+    <div>
+      <label for="emg-low-input">Soglia spegnimento (secondi)</label>
+      <input type="text" id="emg-low-input" value="${d.threshold_low || ''}" placeholder="600">
+    </div>
+    <div>
+      <label for="emg-restore-input">Soglia ripristino (secondi)</label>
+      <input type="text" id="emg-restore-input" value="${d.threshold_restore || ''}" placeholder="1200">
+    </div>
+    <div class="modal-actions">
+      <button class="mbtn" id="emg-test-btn">Testa connessione SSH</button>
+      <button class="mbtn mbtn-primary" id="emg-save-btn">Salva</button>
+    </div>
+    <div id="emg-test-result"></div>
+  `;
+  document.getElementById('emg-test-btn').addEventListener('click', emgTest);
+  document.getElementById('emg-save-btn').addEventListener('click', emgSave);
+}
+
+async function emgTest() {
+  const host  = document.getElementById('emg-host-input').value.trim();
+  const ctId  = document.getElementById('emg-ctid-input').value.trim();
+  const resEl = document.getElementById('emg-test-result');
+  resEl.innerHTML = `<div class="status-box busy"><div class="spinner"></div>Test connessione in corso…</div>`;
+  try {
+    const resp = await fetch('/api/emergency/test', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({proxmox_host: host, nut_ct_id: ctId})
+    });
+    const d = await resp.json();
+    resEl.innerHTML = d.ok
+      ? `<div class="status-box ok">✅&nbsp; Connesso.</div>${emgAffectedHtml(d.affected_cts)}`
+      : `<div class="status-box error">⚠️&nbsp; ${d.error || 'Connessione fallita'}</div>`;
+  } catch(e) {
+    resEl.innerHTML = `<div class="status-box error">⚠️ Errore di rete</div>`;
+  }
+}
+
+async function emgSave() {
+  const body = {
+    proxmox_host:      document.getElementById('emg-host-input').value.trim(),
+    nut_ct_id:         document.getElementById('emg-ctid-input').value.trim(),
+    threshold_low:     document.getElementById('emg-low-input').value.trim(),
+    threshold_restore: document.getElementById('emg-restore-input').value.trim(),
+  };
+  const resEl = document.getElementById('emg-test-result');
+  resEl.innerHTML = `<div class="status-box busy"><div class="spinner"></div>Salvataggio…</div>`;
+  try {
+    const resp = await fetch('/api/emergency/save', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
+    });
+    const d = await resp.json();
+    if (!d.ok) { resEl.innerHTML = `<div class="status-box error">⚠️ ${d.error}</div>`; return; }
+    await refreshEmgState();
+    resEl.innerHTML = `<div class="status-box ok">✅&nbsp; Configurazione salvata.${d.warning ? '<br>⚠️ ' + d.warning : ''}</div>`;
+  } catch(e) {
+    resEl.innerHTML = `<div class="status-box error">⚠️ Errore di rete durante il salvataggio</div>`;
+  }
+}
+
+function openEmgModal() {
+  emgOverlay.classList.add('open');
+  refreshEmgState().then(emgRenderIdle);
+}
+function closeEmgModal() {
+  emgOverlay.classList.remove('open');
+}
+emgBtn.addEventListener('click', openEmgModal);
+document.getElementById('emg-modal-close').addEventListener('click', closeEmgModal);
+emgOverlay.addEventListener('click', e => { if (e.target === emgOverlay) closeEmgModal(); });
+
 // ── Init ──────────────────────────────────────────────────────────────────────
-Promise.all([fetchStats(), fetchHistory(), fetchMetrics(), refreshTgState(), refreshNutState()]);
+Promise.all([fetchStats(), fetchHistory(), fetchMetrics(), refreshTgState(), refreshNutState(), refreshEmgState()]);
 setInterval(fetchStats,   10000);
 setInterval(fetchMetrics, 60000);
 setInterval(fetchHistory, 30000);

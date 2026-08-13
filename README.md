@@ -16,6 +16,7 @@ Gira su un container Proxmox (LXC) dedicato con un UPS collegato via USB. Espone
 - [Impostazioni guidate](#impostazioni-guidate)
   - [Collega Telegram](#collega-telegram)
   - [Collega NUT](#collega-nut)
+  - [Emergenza UPS](#emergenza-ups)
 - [Bot Telegram](#bot-telegram)
 - [Logica di emergenza](#logica-di-emergenza)
 - [File di stato e log](#file-di-stato-e-log)
@@ -105,11 +106,11 @@ Tutto il comportamento è centralizzato in `/etc/nut/nutcontroller.conf` (chiave
 - Carico, consumo stimato (`ups.realpower.nominal × load%`), uptime di sistema.
 - Grafici storici (carica batteria, consumo) su intervalli da 1h a 1 anno, con export CSV.
 - Storico blackout con statistiche (totale, durata media, evento peggiore, ultimo evento) e tabella ordinabile.
-- Due pulsanti di impostazione in alto a destra, sotto l'orario di aggiornamento: **Collega Telegram** e **Collega NUT**.
+- Tre pulsanti di impostazione in alto a destra, in riga sotto l'orario di aggiornamento: **Collega Telegram**, **Collega NUT** ed **Emergenza UPS**.
 
 ## Impostazioni guidate
 
-Entrambi i pulsanti in alto a destra sono rossi quando non collegati, verdi quando tutto funziona, e aprono una modale con la configurazione guidata — pensata per non dover mai editare i file di configurazione a mano.
+I tre pulsanti in alto a destra sono rossi quando non collegati/non configurati, verdi quando tutto funziona (arancione per "Emergenza UPS" quando un'emergenza è effettivamente in corso), e aprono una modale con la configurazione guidata — pensata per non dover mai editare i file di configurazione a mano.
 
 ### Collega Telegram
 
@@ -131,6 +132,17 @@ Pensato per il caso "ho sostituito l'UPS o non ricordo come l'ho configurato": n
 4. Il server scrive `driver`/`port`/`desc` nella stanza `[myups]` di `/etc/nut/ups.conf` e riavvia **solo** `nut-driver@myups` (non tocca `upsd`/`upsmon`): qualche secondo di interruzione del monitoraggio, poi la dashboard torna verde se l'UPS risponde.
 
 Setup NUT di riferimento di questa installazione (per chi deve ricostruirlo a mano): UPS collegato via USB, `driver = usbhid-ups`, `port = auto`, nome dispositivo `myups`, `nut.conf` in `MODE=standalone`, `upsd.users` con un utente `admin` in modalità `master` usato da `upsmon.conf` (`MONITOR myups@localhost 1 admin <password> master`).
+
+### Emergenza UPS
+
+Configura da UI i parametri che `ups-emergency.sh` usa per decidere quando spegnere/riaccendere gli altri CT Proxmox (vedi [Logica di emergenza](#logica-di-emergenza)), senza editare `nutcontroller.conf` a mano:
+
+- **Host Proxmox** e **ID di questo CT** (escluso dallo spegnimento).
+- **Soglia spegnimento** e **soglia ripristino**, in secondi di autonomia stimata.
+- **Testa connessione SSH**: verifica in sola lettura (`pct list` via SSH) che l'accesso funzioni, mostrando in anteprima quali CT verrebbero spenti — senza spegnere nulla.
+- Il pulsante in header diventa arancione quando un'emergenza è effettivamente in corso (CT già spenti in attesa del ripristino).
+
+A differenza di Telegram/NUT, salvare qui **non riavvia nessun servizio**: `ups-emergency.sh` rilegge `nutcontroller.conf` a ogni esecuzione (cron ogni minuto), quindi i nuovi valori sono attivi dal minuto successivo. Se la soglia di spegnimento scelta è troppo bassa (sotto `battery.runtime.low` riportato dall'UPS), il salvataggio va comunque a buon fine ma la dashboard mostra un avviso, perché l'UPS rischierebbe di forzare il proprio shutdown prima che gli altri CT vengano spenti in ordine.
 
 ## Bot Telegram
 
