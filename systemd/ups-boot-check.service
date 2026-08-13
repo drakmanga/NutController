@@ -1,0 +1,12 @@
+[Unit]
+Description=UPS Boot Check - notifica Telegram all'avvio
+After=network-online.target nut-monitor.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/ups-boot-check.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

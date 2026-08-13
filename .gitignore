@@ -1,0 +1,24 @@
+# Config reale con segreti (token/chat id Telegram, password) -- usa config/nutcontroller.conf.example come base
+config/nutcontroller.conf
+*.conf
+!*.conf.example
+
+# Stato/log runtime generati dal sistema, non fanno parte del codice
+*.log
+*.log.bak-*
+*.jsonl
+blackout.flag
+emergency.state
+
+# Backup lasciati durante modifiche manuali sul CT
+*.bak
+*.bak-*
+*.bak[0-9]*
+
+# Python
+__pycache__/
+*.pyc
+
+# Editor/OS
+.DS_Store
+*.swp

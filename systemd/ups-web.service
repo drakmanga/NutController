@@ -1,0 +1,13 @@
+[Unit]
+Description=UPS Web Dashboard
+After=network-online.target nut-monitor.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/local/bin/ups-web.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

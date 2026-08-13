@@ -1,0 +1,30 @@
+# NutController - configurazione centralizzata
+#
+# Copia questo file in /etc/nut/nutcontroller.conf e valorizzalo.
+# BOT_TOKEN e CHAT_ID possono anche essere lasciati vuoti: si impostano
+# comodamente dalla dashboard web con il pulsante "Collega Telegram"
+# (Impostazioni -> Collega Telegram), senza modificare questo file a mano.
+
+# Telegram
+BOT_TOKEN=""
+CHAT_ID=""
+
+# Rete
+PROXMOX_HOST="192.168.0.70"
+NUT_CT_ID="111"
+WEB_URL="http://192.168.0.111"
+
+# Batteria
+BATTERY_VOLTAGE=12
+BATTERY_AH=9
+BATTERY_EFFICIENCY=0.80
+LOAD_WATTS=44
+# Runtime (secondi) riportato dall'UPS a batteria piena, usato solo per scalare la barra dell'autonomia
+BATTERY_RUNTIME_FULL=2400
+
+# Soglie emergenza (in secondi di autonomia stimata, battery.runtime)
+# L'UPS forza il proprio shutdown (FSD) quando battery.runtime scende sotto
+# battery.runtime.low: la soglia LOW qui deve stare sopra quel valore, cosi'
+# i CT vengono spenti PRIMA che NutController si spenga da solo.
+THRESHOLD_RUNTIME_LOW=600
+THRESHOLD_RUNTIME_RESTORE=1200
