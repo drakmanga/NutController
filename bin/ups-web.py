@@ -814,8 +814,7 @@ HTML = """<!DOCTYPE html>
   header h1 { font-size: 1.1rem; font-weight: 600; letter-spacing: .3px; display: flex; align-items: center; flex-shrink: 0; }
   header h1 .tag { font-size: .62rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); background: var(--bg); border: 1px solid var(--border); padding: 3px 8px; border-radius: 20px; margin-left: 10px; }
   .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--online); box-shadow: 0 0 6px var(--online); flex-shrink: 0; }
-  .header-right { margin-left: auto; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; justify-content: flex-end; }
-  header .subtitle { color: var(--muted); font-size: .82rem; text-align: right; line-height: 1.6; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+  header .subtitle { color: var(--muted); font-size: .82rem; margin-left: auto; text-align: right; line-height: 1.6; font-variant-numeric: tabular-nums; }
 
   main { max-width: 960px; margin: 0 auto; padding: 28px 20px; display: flex; flex-direction: column; gap: 24px; }
 
@@ -900,8 +899,9 @@ HTML = """<!DOCTYPE html>
   .pulse { animation: pulse .4s ease; }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
 
-  .settings-row { display: flex; flex-direction: row; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+  .settings-col { display: flex; flex-direction: column; align-items: stretch; gap: 8px; flex-shrink: 0; }
   .settings-btn {
+    justify-content: center;
     display: flex; align-items: center; gap: 7px; font-family: inherit; font-size: .78rem; font-weight: 600;
     padding: 6px 12px; border-radius: 20px; cursor: pointer; transition: all .15s;
     background: var(--surface); white-space: nowrap;
@@ -969,9 +969,8 @@ HTML = """<!DOCTYPE html>
     header { padding: 14px 16px; }
     header h1 { font-size: 1rem; }
     header .subtitle { font-size: .75rem; }
-    .header-right { width: 100%; justify-content: center; text-align: center; }
-    .settings-row { justify-content: center; width: 100%; }
-    .settings-btn { font-size: .74rem; padding: 5px 10px; }
+    .settings-col { width: 100%; }
+    .settings-col .settings-btn { width: 100%; justify-content: center; font-size: .74rem; padding: 7px 10px; }
     main { padding: 14px 12px; gap: 16px; }
     .status-card { flex-direction: column; gap: 16px; }
     .status-divider { width: 100%; height: 1px; align-self: stretch; }
@@ -995,17 +994,10 @@ HTML = """<!DOCTYPE html>
 <header>
   <div class="dot" id="header-dot"></div>
   <h1>NutController<span class="tag">UPS Monitor</span></h1>
-  <div class="header-right">
-    <span class="subtitle">
-      Aggiornato: <span id="last-update">—</span><br>
-      Ora: <span id="live-clock">—</span>
-    </span>
-    <div class="settings-row">
-      <button class="settings-btn state-off" id="tg-settings-btn"><span class="sdot"></span><span id="tg-settings-label">Collega Telegram</span></button>
-      <button class="settings-btn state-off" id="nut-settings-btn"><span class="sdot"></span><span id="nut-settings-label">Collega NUT</span></button>
-      <button class="settings-btn state-off" id="emg-settings-btn"><span class="sdot"></span><span id="emg-settings-label">Emergenza UPS</span></button>
-    </div>
-  </div>
+  <span class="subtitle">
+    Aggiornato: <span id="last-update">—</span><br>
+    Ora: <span id="live-clock">—</span>
+  </span>
 </header>
 
 <!-- Modal: Telegram -->
@@ -1058,6 +1050,12 @@ HTML = """<!DOCTYPE html>
         <span class="charge-value" id="autonomy-value">—</span>
       </div>
       <div class="bar-track"><div class="bar-fill" id="bar-fill" style="width:0%"></div></div>
+    </div>
+    <div class="status-divider"></div>
+    <div class="settings-col">
+      <button class="settings-btn state-off" id="tg-settings-btn"><span class="sdot"></span><span id="tg-settings-label">Collega Telegram</span></button>
+      <button class="settings-btn state-off" id="nut-settings-btn"><span class="sdot"></span><span id="nut-settings-label">Collega NUT</span></button>
+      <button class="settings-btn state-off" id="emg-settings-btn"><span class="sdot"></span><span id="emg-settings-label">Emergenza UPS</span></button>
     </div>
   </div>
 
