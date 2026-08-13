@@ -810,12 +810,12 @@ HTML = """<!DOCTYPE html>
   body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; min-height: 100vh; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
 
   /* Header */
-  header { border-bottom: 1px solid var(--border); padding: 16px 32px; display: flex; flex-direction: column; gap: 12px; background: linear-gradient(180deg, rgba(255,255,255,.02), transparent); }
-  .header-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-  header h1 { font-size: 1.1rem; font-weight: 600; letter-spacing: .3px; display: flex; align-items: center; }
+  header { border-bottom: 1px solid var(--border); padding: 16px 32px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; background: linear-gradient(180deg, rgba(255,255,255,.02), transparent); }
+  header h1 { font-size: 1.1rem; font-weight: 600; letter-spacing: .3px; display: flex; align-items: center; flex-shrink: 0; }
   header h1 .tag { font-size: .62rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); background: var(--bg); border: 1px solid var(--border); padding: 3px 8px; border-radius: 20px; margin-left: 10px; }
   .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--online); box-shadow: 0 0 6px var(--online); flex-shrink: 0; }
-  header .subtitle { color: var(--muted); font-size: .82rem; margin-left: auto; text-align: right; line-height: 1.6; font-variant-numeric: tabular-nums; }
+  .header-right { margin-left: auto; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; justify-content: flex-end; }
+  header .subtitle { color: var(--muted); font-size: .82rem; text-align: right; line-height: 1.6; font-variant-numeric: tabular-nums; flex-shrink: 0; }
 
   main { max-width: 960px; margin: 0 auto; padding: 28px 20px; display: flex; flex-direction: column; gap: 24px; }
 
@@ -900,8 +900,6 @@ HTML = """<!DOCTYPE html>
   .pulse { animation: pulse .4s ease; }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
 
-  /* Settings buttons: riga propria a piena larghezza, sotto dot/h1/subtitle,
-     cosi' non litigano per lo spazio con il titolo a larghezze intermedie. */
   .settings-row { display: flex; flex-direction: row; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
   .settings-btn {
     display: flex; align-items: center; gap: 7px; font-family: inherit; font-size: .78rem; font-weight: 600;
@@ -971,6 +969,7 @@ HTML = """<!DOCTYPE html>
     header { padding: 14px 16px; }
     header h1 { font-size: 1rem; }
     header .subtitle { font-size: .75rem; }
+    .header-right { width: 100%; justify-content: center; text-align: center; }
     .settings-row { justify-content: center; width: 100%; }
     .settings-btn { font-size: .74rem; padding: 5px 10px; }
     main { padding: 14px 12px; gap: 16px; }
@@ -994,18 +993,18 @@ HTML = """<!DOCTYPE html>
 <body>
 
 <header>
-  <div class="header-top">
-    <div class="dot" id="header-dot"></div>
-    <h1>NutController<span class="tag">UPS Monitor</span></h1>
+  <div class="dot" id="header-dot"></div>
+  <h1>NutController<span class="tag">UPS Monitor</span></h1>
+  <div class="header-right">
     <span class="subtitle">
       Aggiornato: <span id="last-update">—</span><br>
       Ora: <span id="live-clock">—</span>
     </span>
-  </div>
-  <div class="settings-row">
-    <button class="settings-btn state-off" id="tg-settings-btn"><span class="sdot"></span><span id="tg-settings-label">Collega Telegram</span></button>
-    <button class="settings-btn state-off" id="nut-settings-btn"><span class="sdot"></span><span id="nut-settings-label">Collega NUT</span></button>
-    <button class="settings-btn state-off" id="emg-settings-btn"><span class="sdot"></span><span id="emg-settings-label">Emergenza UPS</span></button>
+    <div class="settings-row">
+      <button class="settings-btn state-off" id="tg-settings-btn"><span class="sdot"></span><span id="tg-settings-label">Collega Telegram</span></button>
+      <button class="settings-btn state-off" id="nut-settings-btn"><span class="sdot"></span><span id="nut-settings-label">Collega NUT</span></button>
+      <button class="settings-btn state-off" id="emg-settings-btn"><span class="sdot"></span><span id="emg-settings-label">Emergenza UPS</span></button>
+    </div>
   </div>
 </header>
 
