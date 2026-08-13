@@ -810,7 +810,8 @@ HTML = """<!DOCTYPE html>
   body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; min-height: 100vh; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
 
   /* Header */
-  header { border-bottom: 1px solid var(--border); padding: 18px 32px; display: flex; align-items: center; gap: 12px; background: linear-gradient(180deg, rgba(255,255,255,.02), transparent); }
+  header { border-bottom: 1px solid var(--border); padding: 16px 32px; display: flex; flex-direction: column; gap: 12px; background: linear-gradient(180deg, rgba(255,255,255,.02), transparent); }
+  .header-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
   header h1 { font-size: 1.1rem; font-weight: 600; letter-spacing: .3px; display: flex; align-items: center; }
   header h1 .tag { font-size: .62rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); background: var(--bg); border: 1px solid var(--border); padding: 3px 8px; border-radius: 20px; margin-left: 10px; }
   .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--online); box-shadow: 0 0 6px var(--online); flex-shrink: 0; }
@@ -899,9 +900,8 @@ HTML = """<!DOCTYPE html>
   .pulse { animation: pulse .4s ease; }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
 
-  /* Header right / settings buttons */
-  .header-right { margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
-  .header-right .subtitle { margin-left: 0; }
+  /* Settings buttons: riga propria a piena larghezza, sotto dot/h1/subtitle,
+     cosi' non litigano per lo spazio con il titolo a larghezze intermedie. */
   .settings-row { display: flex; flex-direction: row; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
   .settings-btn {
     display: flex; align-items: center; gap: 7px; font-family: inherit; font-size: .78rem; font-weight: 600;
@@ -942,6 +942,7 @@ HTML = """<!DOCTYPE html>
   .modal-body input:focus { outline: none; border-color: var(--charging); }
   .modal-hint { font-size: .78rem; color: var(--muted); line-height: 1.5; }
   .modal-hint a { color: var(--charging); }
+  .modal-body code { background: var(--bg); border: 1px solid var(--border); padding: 1px 5px; border-radius: 4px; font-size: .85em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
   .modal-actions { display: flex; gap: 10px; margin-top: 4px; flex-wrap: wrap; }
   .mbtn { font-family: inherit; font-size: .85rem; font-weight: 600; padding: 9px 16px; border-radius: 8px; cursor: pointer; border: 1px solid var(--border); background: none; color: var(--text); transition: all .15s; }
   .mbtn:hover:not(:disabled) { border-color: var(--charging); color: var(--charging); }
@@ -955,6 +956,10 @@ HTML = """<!DOCTYPE html>
   .status-box.warn     { border-color: rgba(210,153,34,.4); background: rgba(210,153,34,.08); }
   .status-box.error   { border-color: rgba(248,81,73,.4);  background: rgba(248,81,73,.08); }
   .status-box.busy    { border-color: rgba(88,166,255,.4); background: rgba(88,166,255,.08); }
+  /* Il contenuto testuale va sempre in un unico blocco: display:flex sul contenitore
+     spezzerebbe altrimenti testo/<br>/<strong> in piu' flex-item con gap indesiderati tra loro. */
+  .status-box .sb-icon { flex-shrink: 0; }
+  .status-box .sb-content { flex: 1; min-width: 0; overflow-wrap: anywhere; }
   .spinner { width: 14px; height: 14px; border: 2px solid rgba(88,166,255,.3); border-top-color: var(--charging); border-radius: 50%; animation: spin .7s linear infinite; flex-shrink: 0; margin-top: 2px; }
   @keyframes spin { to { transform: rotate(360deg); } }
   .device-option { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; cursor: pointer; font-size: .85rem; transition: all .15s; }
@@ -963,10 +968,11 @@ HTML = """<!DOCTYPE html>
   .device-option .dev-sub { color: var(--muted); font-size: .78rem; }
 
   @media (max-width: 620px) {
-    header { padding: 14px 16px; flex-wrap: wrap; }
+    header { padding: 14px 16px; }
     header h1 { font-size: 1rem; }
     header .subtitle { font-size: .75rem; }
-    .header-right { width: 100%; align-items: flex-end; margin-top: 6px; }
+    .settings-row { justify-content: center; width: 100%; }
+    .settings-btn { font-size: .74rem; padding: 5px 10px; }
     main { padding: 14px 12px; gap: 16px; }
     .status-card { flex-direction: column; gap: 16px; }
     .status-divider { width: 100%; height: 1px; align-self: stretch; }
@@ -988,18 +994,18 @@ HTML = """<!DOCTYPE html>
 <body>
 
 <header>
-  <div class="dot" id="header-dot"></div>
-  <h1>NutController<span class="tag">UPS Monitor</span></h1>
-  <div class="header-right">
+  <div class="header-top">
+    <div class="dot" id="header-dot"></div>
+    <h1>NutController<span class="tag">UPS Monitor</span></h1>
     <span class="subtitle">
       Aggiornato: <span id="last-update">—</span><br>
       Ora: <span id="live-clock">—</span>
     </span>
-    <div class="settings-row">
-      <button class="settings-btn state-off" id="tg-settings-btn"><span class="sdot"></span><span id="tg-settings-label">Collega Telegram</span></button>
-      <button class="settings-btn state-off" id="nut-settings-btn"><span class="sdot"></span><span id="nut-settings-label">Collega NUT</span></button>
-      <button class="settings-btn state-off" id="emg-settings-btn"><span class="sdot"></span><span id="emg-settings-label">Emergenza UPS</span></button>
-    </div>
+  </div>
+  <div class="settings-row">
+    <button class="settings-btn state-off" id="tg-settings-btn"><span class="sdot"></span><span id="tg-settings-label">Collega Telegram</span></button>
+    <button class="settings-btn state-off" id="nut-settings-btn"><span class="sdot"></span><span id="nut-settings-label">Collega NUT</span></button>
+    <button class="settings-btn state-off" id="emg-settings-btn"><span class="sdot"></span><span id="emg-settings-label">Emergenza UPS</span></button>
   </div>
 </header>
 
@@ -1318,6 +1324,18 @@ async function fetchHistory() {
   } catch(e) {}
 }
 
+// ── Helper condiviso dai 3 modal di impostazione ─────────────────────────────
+// Il contenuto testuale (che puo' contenere <br>/<strong>/<code>) va sempre in un
+// unico div: non lasciarlo come testo "nudo" dentro .status-box (display:flex),
+// altrimenti ogni frammento di testo/tag diventa un flex-item a se' e il gap del
+// contenitore li separa in modo scomposto invece di farli scorrere come testo normale.
+function statusBox(cls, icon, html) {
+  return `<div class="status-box ${cls}">${icon ? `<span class="sb-icon">${icon}</span>` : ''}<div class="sb-content">${html}</div></div>`;
+}
+function statusBoxBusy(html) {
+  return `<div class="status-box busy"><div class="spinner"></div><div class="sb-content">${html}</div></div>`;
+}
+
 // ── Telegram settings modal ──────────────────────────────────────────────────
 const tgOverlay = document.getElementById('tg-modal-overlay');
 const tgBody    = document.getElementById('tg-modal-body');
@@ -1343,7 +1361,7 @@ function tgRenderIdle() {
   const d = tgConnectedState;
   tgBody.innerHTML = `
     ${d.connected ? `
-      <div class="status-box ok">✅&nbsp; Collegato a <strong>@${d.bot_username || '—'}</strong><br>Chat ID: ${d.chat_id}</div>
+      ${statusBox('ok', '✅', `Collegato a <strong>@${d.bot_username || '—'}</strong><br>Chat ID: <code>${d.chat_id}</code>`)}
       <div class="modal-hint">Per cambiare bot incolla un nuovo token e premi "Collega". Per scollegare del tutto usa "Scollega".</div>
     ` : `
       <div class="modal-hint">Crea un bot con <a href="https://t.me/BotFather" target="_blank" rel="noopener">@BotFather</a> su Telegram, copia il token e incollalo qui sotto. Poi scrivi un messaggio qualsiasi al bot: il chat ID viene rilevato in automatico, senza bisogno di cercarlo a mano.</div>
@@ -1365,7 +1383,7 @@ function tgRenderIdle() {
 async function tgStartLink() {
   const token = document.getElementById('tg-token-input').value.trim();
   if (!token) return;
-  tgBody.innerHTML = `<div class="status-box busy"><div class="spinner"></div>Verifica del token in corso…</div>`;
+  tgBody.innerHTML = statusBoxBusy('Verifica del token in corso…');
   try {
     const resp = await fetch('/api/telegram/link/start', {
       method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({token})
@@ -1379,7 +1397,7 @@ async function tgStartLink() {
 
 function tgRenderListening(botUsername) {
   tgBody.innerHTML = `
-    <div class="status-box busy"><div class="spinner"></div>In ascolto… apri Telegram, cerca <strong>@${botUsername}</strong> e invia un messaggio qualsiasi (es. /start). Rilevamento entro 2 minuti.</div>
+    ${statusBoxBusy(`In ascolto… apri Telegram, cerca <strong>@${botUsername}</strong> e invia un messaggio qualsiasi (es. /start). Rilevamento entro 2 minuti.`)}
     <div class="modal-actions"><button class="mbtn" id="tg-cancel-btn">Annulla</button></div>
   `;
   document.getElementById('tg-cancel-btn').addEventListener('click', tgCancelLink);
@@ -1403,7 +1421,7 @@ async function tgPollLinkStatus() {
 
 function tgRenderFound(d) {
   tgBody.innerHTML = `
-    <div class="status-box ok">✅&nbsp; Rilevato: <strong>${d.chat_name}</strong> (chat ID ${d.chat_id})<br>Bot: @${d.bot_username}</div>
+    ${statusBox('ok', '✅', `Rilevato: <strong>${d.chat_name}</strong> (chat ID <code>${d.chat_id}</code>)<br>Bot: @${d.bot_username}`)}
     <div class="modal-actions">
       <button class="mbtn mbtn-primary" id="tg-save-btn">Salva</button>
       <button class="mbtn" id="tg-discard-btn">Annulla</button>
@@ -1414,7 +1432,7 @@ function tgRenderFound(d) {
 }
 
 async function tgSaveLink() {
-  tgBody.innerHTML = `<div class="status-box busy"><div class="spinner"></div>Salvataggio…</div>`;
+  tgBody.innerHTML = statusBoxBusy('Salvataggio…');
   try {
     const resp = await fetch('/api/telegram/link/save', { method: 'POST' });
     const d = await resp.json();
@@ -1441,7 +1459,7 @@ async function tgUnlink() {
 
 function tgRenderError(msg) {
   tgBody.innerHTML = `
-    <div class="status-box error">⚠️&nbsp; ${msg}</div>
+    ${statusBox('error', '⚠️', msg)}
     <div class="modal-actions"><button class="mbtn mbtn-primary" id="tg-retry-btn">Riprova</button></div>
   `;
   document.getElementById('tg-retry-btn').addEventListener('click', tgRenderIdle);
@@ -1483,10 +1501,8 @@ async function refreshNutState() {
 function nutRenderIdle() {
   const d = nutState;
   nutBody.innerHTML = `
-    <div class="status-box ${d.connected ? 'ok' : 'error'}">
-      ${d.connected ? '✅' : '⚠️'}&nbsp; ${d.connected ? `UPS attivo (${d.model || d.status || 'online'})` : 'UPS non raggiungibile'}<br>
-      Driver: <strong>${d.driver || '—'}</strong> · Porta: <strong>${d.port || '—'}</strong>${d.desc ? ' · ' + d.desc : ''}
-    </div>
+    ${statusBox(d.connected ? 'ok' : 'error', d.connected ? '✅' : '⚠️',
+      `${d.connected ? `UPS attivo (${d.model || d.status || 'online'})` : 'UPS non raggiungibile'}<br>Driver: <strong>${d.driver || '—'}</strong> · Porta: <strong>${d.port || '—'}</strong>${d.desc ? ' · ' + d.desc : ''}`)}
     <div class="modal-hint">Se l'UPS non risponde o hai cambiato dispositivo USB, avvia la rilevazione: lo scan e' in sola lettura e non modifica nulla finche' non premi "Salva e riavvia driver".</div>
     <div class="modal-actions">
       <button class="mbtn mbtn-primary" id="nut-scan-btn">Rileva UPS collegate (USB)</button>
@@ -1498,14 +1514,14 @@ function nutRenderIdle() {
 
 async function nutScan() {
   const devicesEl = document.getElementById('nut-devices');
-  devicesEl.innerHTML = `<div class="status-box busy"><div class="spinner"></div>Scansione USB in corso…</div>`;
+  devicesEl.innerHTML = statusBoxBusy('Scansione USB in corso…');
   try {
     const resp = await fetch('/api/nut/scan', { method: 'POST' });
     const d = await resp.json();
-    if (!d.ok) { devicesEl.innerHTML = `<div class="status-box error">⚠️ ${d.error}</div>`; return; }
+    if (!d.ok) { devicesEl.innerHTML = statusBox('error', '⚠️', d.error); return; }
     nutScanned = d.devices || [];
     if (!nutScanned.length) {
-      devicesEl.innerHTML = `<div class="status-box warn">Nessun dispositivo USB rilevato. Controlla il cavo e riprova.</div>`;
+      devicesEl.innerHTML = statusBox('warn', '⚠️', 'Nessun dispositivo USB rilevato. Controlla il cavo e riprova.');
       return;
     }
     devicesEl.innerHTML = nutScanned.map((dev, i) => `
@@ -1528,7 +1544,7 @@ async function nutScan() {
       nutRenderConfirm(nutScanned[idx]);
     });
   } catch(e) {
-    devicesEl.innerHTML = `<div class="status-box error">⚠️ Errore di rete durante la scansione</div>`;
+    devicesEl.innerHTML = statusBox('error', '⚠️', 'Errore di rete durante la scansione');
   }
 }
 
@@ -1560,7 +1576,7 @@ async function nutSave() {
   const driver = document.getElementById('nut-driver-input').value.trim();
   const port   = document.getElementById('nut-port-input').value.trim();
   const desc   = document.getElementById('nut-desc-input').value.trim();
-  nutBody.innerHTML = `<div class="status-box busy"><div class="spinner"></div>Salvataggio e riavvio driver in corso… (qualche secondo di interruzione monitoraggio)</div>`;
+  nutBody.innerHTML = statusBoxBusy('Salvataggio e riavvio driver in corso… (qualche secondo di interruzione monitoraggio)');
   try {
     const resp = await fetch('/api/nut/save', {
       method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({driver, port, desc})
@@ -1568,13 +1584,13 @@ async function nutSave() {
     const d = await resp.json();
     await refreshNutState();
     if (!d.ok) {
-      nutBody.innerHTML = `<div class="status-box error">⚠️ ${d.error}</div><div class="modal-actions"><button class="mbtn mbtn-primary" id="nut-retry-btn">Torna alle impostazioni</button></div>`;
+      nutBody.innerHTML = statusBox('error', '⚠️', d.error) + '<div class="modal-actions"><button class="mbtn mbtn-primary" id="nut-retry-btn">Torna alle impostazioni</button></div>';
       document.getElementById('nut-retry-btn').addEventListener('click', nutRenderIdle);
       return;
     }
     nutRenderIdle();
   } catch(e) {
-    nutBody.innerHTML = `<div class="status-box error">⚠️ Errore di rete durante il salvataggio</div>`;
+    nutBody.innerHTML = statusBox('error', '⚠️', 'Errore di rete durante il salvataggio');
   }
 }
 
@@ -1621,10 +1637,9 @@ function emgAffectedHtml(cts) {
 function emgRenderIdle() {
   const d = emgState;
   emgBody.innerHTML = `
-    ${d.active ? `<div class="status-box warn">⚠️&nbsp; Emergenza attualmente <strong>attiva</strong>: gli altri CT sono stati spenti in attesa del ripristino corrente.</div>` : ''}
-    <div class="status-box ${d.connected ? 'ok' : 'error'}">
-      ${d.connected ? '✅&nbsp; Connessione SSH a Proxmox ok' : ('⚠️&nbsp; Connessione SSH non riuscita' + (d.error ? ': ' + d.error : ''))}
-    </div>
+    ${d.active ? statusBox('warn', '⚠️', 'Emergenza attualmente <strong>attiva</strong>: gli altri CT sono stati spenti in attesa del ripristino corrente.') : ''}
+    ${statusBox(d.connected ? 'ok' : 'error', d.connected ? '✅' : '⚠️',
+      d.connected ? 'Connessione SSH a Proxmox ok' : ('Connessione SSH non riuscita' + (d.error ? ': ' + d.error : '')))}
     ${emgAffectedHtml(d.affected_cts)}
     <div class="modal-hint">Questi valori controllano quando NutController spegne (e poi riaccende) tutti gli altri CT dell'host Proxmox durante un blackout prolungato. Le soglie sono in secondi di autonomia stimata (<code>battery.runtime</code>).</div>
     <div>
@@ -1657,17 +1672,17 @@ async function emgTest() {
   const host  = document.getElementById('emg-host-input').value.trim();
   const ctId  = document.getElementById('emg-ctid-input').value.trim();
   const resEl = document.getElementById('emg-test-result');
-  resEl.innerHTML = `<div class="status-box busy"><div class="spinner"></div>Test connessione in corso…</div>`;
+  resEl.innerHTML = statusBoxBusy('Test connessione in corso…');
   try {
     const resp = await fetch('/api/emergency/test', {
       method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({proxmox_host: host, nut_ct_id: ctId})
     });
     const d = await resp.json();
     resEl.innerHTML = d.ok
-      ? `<div class="status-box ok">✅&nbsp; Connesso.</div>${emgAffectedHtml(d.affected_cts)}`
-      : `<div class="status-box error">⚠️&nbsp; ${d.error || 'Connessione fallita'}</div>`;
+      ? statusBox('ok', '✅', 'Connesso.') + emgAffectedHtml(d.affected_cts)
+      : statusBox('error', '⚠️', d.error || 'Connessione fallita');
   } catch(e) {
-    resEl.innerHTML = `<div class="status-box error">⚠️ Errore di rete</div>`;
+    resEl.innerHTML = statusBox('error', '⚠️', 'Errore di rete');
   }
 }
 
@@ -1679,17 +1694,17 @@ async function emgSave() {
     threshold_restore: document.getElementById('emg-restore-input').value.trim(),
   };
   const resEl = document.getElementById('emg-test-result');
-  resEl.innerHTML = `<div class="status-box busy"><div class="spinner"></div>Salvataggio…</div>`;
+  resEl.innerHTML = statusBoxBusy('Salvataggio…');
   try {
     const resp = await fetch('/api/emergency/save', {
       method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
     });
     const d = await resp.json();
-    if (!d.ok) { resEl.innerHTML = `<div class="status-box error">⚠️ ${d.error}</div>`; return; }
+    if (!d.ok) { resEl.innerHTML = statusBox('error', '⚠️', d.error); return; }
     await refreshEmgState();
-    resEl.innerHTML = `<div class="status-box ok">✅&nbsp; Configurazione salvata.${d.warning ? '<br>⚠️ ' + d.warning : ''}</div>`;
+    resEl.innerHTML = statusBox('ok', '✅', `Configurazione salvata.${d.warning ? '<br>⚠️ ' + d.warning : ''}`);
   } catch(e) {
-    resEl.innerHTML = `<div class="status-box error">⚠️ Errore di rete durante il salvataggio</div>`;
+    resEl.innerHTML = statusBox('error', '⚠️', 'Errore di rete durante il salvataggio');
   }
 }
 

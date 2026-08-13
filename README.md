@@ -1,206 +1,252 @@
 # NutController
 
-Dashboard web + bot Telegram per monitorare un UPS via [NUT (Network UPS Tools)](https://networkupstools.org/) e proteggere gli altri container di un host Proxmox durante i blackout.
+A self-hosted web dashboard and Telegram bot for monitoring a UPS through [NUT (Network UPS Tools)](https://networkupstools.org/), with automatic emergency shutdown of other Proxmox VE containers during long power outages.
 
-Gira su un container Proxmox (LXC) dedicato con un UPS collegato via USB. Espone una dashboard web in tempo reale, invia notifiche Telegram sugli eventi di rete elettrica e, in caso di autonomia critica, spegne in ordine gli altri CT del nodo Proxmox per evitare shutdown non puliti.
+Runs on a dedicated Proxmox LXC container with a USB-attached UPS. Ships a real-time web dashboard, sends Telegram notifications on power events, and — when battery runtime gets critical — shuts down the other containers on the Proxmox host in order to avoid unclean shutdowns, then powers them back on once the power is restored.
 
-![status](https://img.shields.io/badge/stato-uso%20personale%20%2F%20homelab-blue)
+![License](https://img.shields.io/github/license/drakmanga/NutController)
+![Last commit](https://img.shields.io/github/last-commit/drakmanga/NutController)
+![Python](https://img.shields.io/badge/python-3.9%2B-blue)
+![Flask](https://img.shields.io/badge/flask-3.x-black)
+![NUT](https://img.shields.io/badge/NUT-Network%20UPS%20Tools-orange)
+![Platform](https://img.shields.io/badge/platform-Proxmox%20VE%20(LXC)-informational)
 
-## Indice
+## Table of contents
 
-- [Architettura](#architettura)
-- [Requisiti](#requisiti)
-- [Installazione](#installazione)
-- [Configurazione](#configurazione)
-- [Dashboard web](#dashboard-web)
-- [Impostazioni guidate](#impostazioni-guidate)
-  - [Collega Telegram](#collega-telegram)
-  - [Collega NUT](#collega-nut)
-  - [Emergenza UPS](#emergenza-ups)
-- [Bot Telegram](#bot-telegram)
-- [Logica di emergenza](#logica-di-emergenza)
-- [File di stato e log](#file-di-stato-e-log)
-- [Struttura del repository](#struttura-del-repository)
-- [Sicurezza](#sicurezza)
-- [Limiti noti](#limiti-noti)
+- [Architecture](#architecture)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [USB passthrough (Proxmox LXC)](#usb-passthrough-proxmox-lxc)
+- [Configuration](#configuration)
+- [Web dashboard](#web-dashboard)
+- [Guided settings](#guided-settings)
+  - [Connect Telegram](#connect-telegram)
+  - [Connect NUT](#connect-nut)
+  - [UPS emergency](#ups-emergency)
+- [Telegram bot](#telegram-bot)
+- [Emergency shutdown logic](#emergency-shutdown-logic)
+- [State and log files](#state-and-log-files)
+- [Repository layout](#repository-layout)
+- [Security](#security)
+- [Known limitations](#known-limitations)
+- [License](#license)
 
-## Architettura
+## Architecture
 
 ```
 UPS (USB) ──► NUT (usbhid-ups driver) ──► upsd ──► upsmon
                                              │           │
                                              │           └─► NOTIFYCMD ──► ups-notify.sh ──► Telegram
                                              │
-                                             └─► ups-web.py (Flask, porta 80)
-                                                    ├─ dashboard web
-                                                    ├─ bot Telegram (/stats, /history)
-                                                    └─ API di collegamento guidato (Telegram + NUT)
+                                             └─► ups-web.py (Flask, port 80)
+                                                    ├─ web dashboard
+                                                    ├─ Telegram bot (/stats, /history)
+                                                    └─ guided-setup API (Telegram + NUT + emergency)
 
-cron (ogni minuto) ──► ups-emergency.sh ──► SSH verso l'host Proxmox ──► spegne/riaccende gli altri CT
-systemd (al boot)  ──► ups-boot-check.sh ──► notifica se il riavvio è avvenuto durante un blackout
+cron (every minute) ──► ups-emergency.sh ──► SSH to the Proxmox host ──► shuts down / restarts the other CTs
+systemd (on boot)   ──► ups-boot-check.sh ──► notifies if the reboot happened during a power outage
 ```
 
-Tutti i componenti girano sullo stesso CT NUT-dedicato (nell'installazione originale: CT Proxmox con NUT in modalità `standalone`, UPS collegato via USB in passthrough).
+All components run inside the same NUT-dedicated LXC container (original setup: a Proxmox container running NUT in `standalone` mode, UPS attached over USB passthrough).
 
-## Requisiti
+## Requirements
 
-- Un container/host Linux con NUT installato (`nut`, `nut-client` su Debian/Ubuntu) e un UPS supportato collegato via USB (o altro driver NUT).
-- Python 3.9+ con `flask`, `requests`, `pyTelegramBotAPI` (`telebot`).
-- Accesso SSH senza password (chiave) dal CT verso l'host Proxmox, se si vuole usare `ups-emergency.sh` per spegnere/riaccendere altri CT.
-- Un bot Telegram (creato con [@BotFather](https://t.me/BotFather)) — il token si imposta comodamente dalla dashboard, vedi [Collega Telegram](#collega-telegram).
+- A Linux container/host with NUT installed (`nut`, `nut-client` on Debian/Ubuntu) and a NUT-supported UPS attached (USB in the reference setup, but any NUT driver works).
+- Python 3.9+ with `flask`, `requests`, `pyTelegramBotAPI` (`telebot`).
+- Passwordless SSH (key-based) from the container to the Proxmox host, if you want to use `ups-emergency.sh` to shut down/restart other containers.
+- A Telegram bot (created via [@BotFather](https://t.me/BotFather)) — the token is set from the dashboard, see [Connect Telegram](#connect-telegram).
 
-## Installazione
+## Installation
 
-1. Installa NUT e configura il tuo UPS (vedi la sezione [Collega NUT](#collega-nut) per farlo dalla dashboard, oppure manualmente con `nut-scanner -U` per rilevare il dispositivo USB).
-2. Copia gli script:
+1. Install NUT and set up your UPS (see [USB passthrough](#usb-passthrough-proxmox-lxc) below if running inside a Proxmox LXC, then use the [Connect NUT](#connect-nut) dashboard button, or configure `ups.conf` manually with `nut-scanner -U`).
+2. Copy the scripts:
    ```bash
    cp bin/ups-web.py bin/ups-notify.sh bin/ups-boot-check.sh bin/ups-emergency.sh /usr/local/bin/
    chmod +x /usr/local/bin/ups-*.sh
    ```
-3. Copia il config di esempio e valorizzalo (il token Telegram può restare vuoto, si imposta dalla dashboard):
+3. Copy the example config (the Telegram token can be left empty — it's set from the dashboard):
    ```bash
    cp config/nutcontroller.conf.example /etc/nut/nutcontroller.conf
    ```
-4. Installa le unit systemd:
+4. Install the systemd units:
    ```bash
    cp systemd/ups-web.service systemd/ups-boot-check.service /etc/systemd/system/
    systemctl daemon-reload
    systemctl enable --now ups-web.service
-   systemctl enable ups-boot-check.service   # oneshot, parte da solo al boot
+   systemctl enable ups-boot-check.service   # oneshot, runs automatically on boot
    ```
-5. Collega `ups-notify.sh` a `upsmon` in `/etc/nut/upsmon.conf`:
+5. Wire `ups-notify.sh` into `upsmon` in `/etc/nut/upsmon.conf`:
    ```
    NOTIFYCMD /usr/local/bin/ups-notify.sh
    NOTIFYFLAG ONLINE  SYSLOG+WALL+EXEC
    NOTIFYFLAG ONBATT  SYSLOG+WALL+EXEC
    NOTIFYFLAG LOWBATT SYSLOG+WALL+EXEC
    ```
-6. (Opzionale) Aggiungi `ups-emergency.sh` a cron per la protezione degli altri CT:
+6. (Optional) Add `ups-emergency.sh` to cron for protecting the other containers:
    ```
    * * * * * /usr/local/bin/ups-emergency.sh
    ```
-7. Apri `http://<ip-del-ct>/` e collega Telegram e NUT dai due pulsanti in alto a destra.
+7. Open `http://<container-ip>/` and connect Telegram and NUT from the two buttons in the top-right corner.
 
-## Configurazione
+## USB passthrough (Proxmox LXC)
 
-Tutto il comportamento è centralizzato in `/etc/nut/nutcontroller.conf` (chiave=valore, vedi `config/nutcontroller.conf.example`):
+A UPS talks USB HID directly to the `usbhid-ups` driver via `libusb` — it isn't a standard kernel HID input device, so Proxmox's usual "USB device" GUI passthrough (meant for VMs) doesn't apply the same way to containers. For an **LXC container**, the UPS's USB device node just needs to be bind-mounted into the container with the right cgroup permissions. This is what makes `upsc`/`usbhid-ups` inside the container able to see the UPS at all — if you're setting this up from scratch and can't find the UPS from inside the container, this is almost certainly the missing piece.
 
-| Chiave | Significato |
+1. **On the Proxmox host** (not inside the container), plug in the UPS and find its USB bus/device numbers:
+   ```bash
+   lsusb
+   # Bus 001 Device 002: ID 0764:0601 Cyber Power System, Inc. PR1500LCDRT2U UPS
+   ```
+   Note the `Bus 001 Device 002` values — they map to `/dev/bus/usb/001/002` on the host.
+2. **Edit the container's config file on the host**, `/etc/pve/lxc/<CTID>.conf` (this file lives on the Proxmox host filesystem, *not* inside the container), and add:
+   ```
+   lxc.cgroup2.devices.allow: c 189:* rwm
+   lxc.mount.entry: /dev/bus/usb/001/002 dev/bus/usb/001/002 none bind,optional,create=file
+   ```
+   - `lxc.cgroup2.devices.allow: c 189:* rwm` grants the container read/write/mknod access to USB device nodes (major number `189` is the kernel's `usbfs` device class).
+   - `lxc.mount.entry: ...` bind-mounts the specific device node from the host into the same path inside the container.
+
+   This is the exact configuration used in the reference installation (CT 111, `/etc/pve/lxc/111.conf`).
+3. **Restart the container**: `pct reboot <CTID>`.
+4. **Verify from inside the container**:
+   ```bash
+   ls -l /dev/bus/usb/001/002       # the device node should exist
+   nut-scanner -U                    # should detect the UPS over USB
+   ```
+5. Configure `/etc/nut/ups.conf` (`driver = usbhid-ups`, `port = auto` works with libusb regardless of the exact bus/device path) — or just use the **Connect NUT** button in the dashboard, which runs `nut-scanner -U` for you and writes the config.
+
+**Caveats:**
+- The container in the reference setup is a **privileged** LXC (no `unprivileged: 1` in its config). Unprivileged containers typically need extra `lxc.idmap` mapping for device passthrough to work the same way.
+- Bus/device numbers (`001/002`) can change if the UPS is unplugged and replugged into a different physical port, or if other USB devices are added/removed on the host. If the dashboard suddenly can't see the UPS after a host reboot or a cable change, re-run `lsusb` on the host and update the `lxc.mount.entry` line accordingly.
+- `port = auto` in `ups.conf` lets `usbhid-ups` find the device by USB vendor/product ID rather than by a fixed path, which is more robust across reconnects than pinning an exact device path there — the passthrough line in `lxc.conf` is what needs the bus/device numbers, not `ups.conf` itself.
+
+## Configuration
+
+Behavior is centralized in `/etc/nut/nutcontroller.conf` (`KEY=value` pairs, see `config/nutcontroller.conf.example`):
+
+| Key | Meaning |
 |---|---|
-| `BOT_TOKEN`, `CHAT_ID` | Credenziali del bot Telegram. Si impostano da UI, non serve editare il file a mano. |
-| `PROXMOX_HOST` | IP dell'host Proxmox da cui spegnere/riavviare gli altri CT in emergenza. |
-| `NUT_CT_ID` | ID del CT che ospita NutController stesso (escluso dagli spegnimenti di emergenza). |
-| `WEB_URL` | URL della dashboard, incluso nei messaggi Telegram. |
-| `BATTERY_VOLTAGE`, `BATTERY_AH`, `BATTERY_EFFICIENCY`, `LOAD_WATTS` | Parametri della batteria, usati come fallback quando l'UPS non riporta dati diretti. |
-| `BATTERY_RUNTIME_FULL` | Secondi di autonomia a batteria piena, riportati dall'UPS: usati per scalare la barra dell'autonomia in dashboard (0–100%). |
-| `THRESHOLD_RUNTIME_LOW` | Sotto questa autonomia stimata (secondi) scatta lo spegnimento di emergenza degli altri CT. Deve stare sopra `battery.runtime.low` dell'UPS, altrimenti l'UPS forza il proprio shutdown (FSD) prima che gli altri CT vengano spenti in ordine. |
-| `THRESHOLD_RUNTIME_RESTORE` | Sopra questa autonomia stimata, gli altri CT vengono riaccesi automaticamente al ripristino della corrente. |
+| `BOT_TOKEN`, `CHAT_ID` | Telegram bot credentials. Set from the UI, no need to edit the file by hand. |
+| `PROXMOX_HOST` | IP of the Proxmox host used to shut down/restart the other CTs in an emergency. |
+| `NUT_CT_ID` | ID of the CT running NutController itself (excluded from emergency shutdowns). |
+| `WEB_URL` | Dashboard URL, included in Telegram messages. |
+| `BATTERY_VOLTAGE`, `BATTERY_AH`, `BATTERY_EFFICIENCY`, `LOAD_WATTS` | Battery parameters, used as a fallback when the UPS doesn't report direct data. |
+| `BATTERY_RUNTIME_FULL` | Seconds of runtime at full charge, as reported by the UPS: used to scale the runtime bar in the dashboard (0–100%). |
+| `THRESHOLD_RUNTIME_LOW` | Below this estimated runtime (seconds), emergency shutdown of the other CTs kicks in. Must stay above the UPS's own `battery.runtime.low`, otherwise the UPS forces its own shutdown (FSD) before the other CTs are shut down in order. |
+| `THRESHOLD_RUNTIME_RESTORE` | Above this estimated runtime, the other CTs are automatically powered back on once power is restored. |
 
-`BOT_TOKEN`/`CHAT_ID` vengono riscritti automaticamente in questo file quando li imposti dal pulsante "Collega Telegram" della dashboard — il resto del file (commenti, altre chiavi) resta invariato.
+`BOT_TOKEN`/`CHAT_ID` and the emergency parameters are rewritten automatically in this file when you set them from the dashboard's guided settings — the rest of the file (comments, other keys) is left untouched.
 
-## Dashboard web
+## Web dashboard
 
-`http://<ip-del-ct>/` (Flask, porta 80, servita da `ups-web.service`):
+`http://<container-ip>/` (Flask, port 80, served by `ups-web.service`):
 
-- Stato UPS in tempo reale (online / su batteria / batteria scarica / in carica) con autonomia stimata da `battery.runtime`.
-- Carico, consumo stimato (`ups.realpower.nominal × load%`), uptime di sistema.
-- Grafici storici (carica batteria, consumo) su intervalli da 1h a 1 anno, con export CSV.
-- Storico blackout con statistiche (totale, durata media, evento peggiore, ultimo evento) e tabella ordinabile.
-- Tre pulsanti di impostazione in alto a destra, in riga sotto l'orario di aggiornamento: **Collega Telegram**, **Collega NUT** ed **Emergenza UPS**.
+- Real-time UPS status (online / on battery / low battery / charging) with estimated runtime from `battery.runtime`.
+- Load, estimated power draw (`ups.realpower.nominal × load%`), system uptime.
+- Historical charts (battery charge, power draw) over 1h to 1 year ranges, with CSV export.
+- Outage history with stats (total count, average duration, worst event, last event) and a sortable table.
+- Three settings buttons in the top-right corner, below the last-update timestamp: **Connect Telegram**, **Connect NUT**, and **UPS emergency**.
 
-## Impostazioni guidate
+## Guided settings
 
-I tre pulsanti in alto a destra sono rossi quando non collegati/non configurati, verdi quando tutto funziona (arancione per "Emergenza UPS" quando un'emergenza è effettivamente in corso), e aprono una modale con la configurazione guidata — pensata per non dover mai editare i file di configurazione a mano.
+All three buttons in the header are red when not connected/configured, green when everything works (amber for **UPS emergency** while an emergency shutdown is actually in progress), and open a modal with guided configuration — so you never have to edit config files by hand.
 
-### Collega Telegram
+### Connect Telegram
 
-1. Crea un bot con [@BotFather](https://t.me/BotFather) su Telegram e copia il token.
-2. In dashboard, clic su **Collega Telegram** → incolla il token → **Collega**.
-3. Il server valida il token (`getMe`) e si mette in ascolto (`getUpdates`) per un massimo di 2 minuti.
-4. Apri Telegram, cerca il bot appena creato e invia un messaggio qualsiasi (es. `/start`): il `chat_id` viene rilevato automaticamente, senza doverlo cercare a mano.
-5. Compare il pulsante **Salva**: da quel momento token e chat id sono scritti in `nutcontroller.conf` e il bot dei comandi (`/stats`, `/history`) riparte con le nuove credenziali.
+1. Create a bot with [@BotFather](https://t.me/BotFather) on Telegram and copy its token.
+2. In the dashboard, click **Connect Telegram** → paste the token → **Connect**.
+3. The server validates the token (`getMe`) and listens (`getUpdates`) for up to 2 minutes.
+4. Open Telegram, find the bot you just created and send it any message (e.g. `/start`): the `chat_id` is detected automatically — no need to look it up by hand.
+5. A **Save** button appears: from that point on, the token and chat id are written to `nutcontroller.conf` and the command bot (`/stats`, `/history`) restarts with the new credentials.
 
-Il pulsante **Scollega** rimuove le credenziali e ferma il bot. Se cambi bot mentre uno è già collegato, il precedente resta attivo finché non premi "Salva" sul nuovo — annullando il collegamento in corso il bot originale riprende automaticamente.
+**Disconnect** removes the credentials and stops the bot. If you connect a different bot while one is already active, the previous one keeps running until you press "Save" on the new one — cancelling an in-progress link resumes the original bot automatically.
 
-### Collega NUT
+### Connect NUT
 
-Pensato per il caso "ho sostituito l'UPS o non ricordo come l'ho configurato": non serve editare `ups.conf` a mano né ricordare nome driver/porta.
+Built for the "I don't remember how I configured this" scenario: no need to hand-edit `ups.conf` or remember driver/port names.
 
-1. Clic su **Collega NUT**: la modale mostra lo stato attuale (driver, porta, se l'UPS risponde).
-2. **Rileva UPS collegate (USB)** lancia una scansione USB (`nut-scanner -U`), **in sola lettura**: non modifica nulla, elenca solo i dispositivi trovati con driver/porta suggeriti.
-3. Selezioni il dispositivo rilevato (i valori sono precompilati ma modificabili) e premi **Salva e riavvia driver**.
-4. Il server scrive `driver`/`port`/`desc` nella stanza `[myups]` di `/etc/nut/ups.conf` e riavvia **solo** `nut-driver@myups` (non tocca `upsd`/`upsmon`): qualche secondo di interruzione del monitoraggio, poi la dashboard torna verde se l'UPS risponde.
+1. Click **Connect NUT**: the modal shows the current state (driver, port, whether the UPS responds).
+2. **Scan for connected UPS (USB)** runs a **read-only** USB scan (`nut-scanner -U`) — it changes nothing, it just lists what it finds with suggested driver/port.
+3. Pick the detected device (values are pre-filled but editable) and press **Save and restart driver**.
+4. The server writes `driver`/`port`/`desc` into the `[myups]` stanza of `/etc/nut/ups.conf` and restarts **only** `nut-driver@myups` (not `upsd`/`upsmon`): a few seconds of monitoring downtime, then the dashboard turns green again once the UPS responds.
 
-Setup NUT di riferimento di questa installazione (per chi deve ricostruirlo a mano): UPS collegato via USB, `driver = usbhid-ups`, `port = auto`, nome dispositivo `myups`, `nut.conf` in `MODE=standalone`, `upsd.users` con un utente `admin` in modalità `master` usato da `upsmon.conf` (`MONITOR myups@localhost 1 admin <password> master`).
+If the UPS isn't detected at all, see [USB passthrough](#usb-passthrough-proxmox-lxc) — the container most likely can't see the USB device yet.
 
-### Emergenza UPS
+Reference NUT setup for this installation (for anyone rebuilding it by hand): USB-attached UPS, `driver = usbhid-ups`, `port = auto`, device name `myups`, `nut.conf` set to `MODE=standalone`, `upsd.users` with an `admin` user in `master` mode used by `upsmon.conf` (`MONITOR myups@localhost 1 admin <password> master`).
 
-Configura da UI i parametri che `ups-emergency.sh` usa per decidere quando spegnere/riaccendere gli altri CT Proxmox (vedi [Logica di emergenza](#logica-di-emergenza)), senza editare `nutcontroller.conf` a mano:
+### UPS emergency
 
-- **Host Proxmox** e **ID di questo CT** (escluso dallo spegnimento).
-- **Soglia spegnimento** e **soglia ripristino**, in secondi di autonomia stimata.
-- **Testa connessione SSH**: verifica in sola lettura (`pct list` via SSH) che l'accesso funzioni, mostrando in anteprima quali CT verrebbero spenti — senza spegnere nulla.
-- Il pulsante in header diventa arancione quando un'emergenza è effettivamente in corso (CT già spenti in attesa del ripristino).
+Configures, from the UI, the parameters `ups-emergency.sh` uses to decide when to shut down (and later restart) all the other Proxmox containers (see [Emergency shutdown logic](#emergency-shutdown-logic)), without hand-editing `nutcontroller.conf`:
 
-A differenza di Telegram/NUT, salvare qui **non riavvia nessun servizio**: `ups-emergency.sh` rilegge `nutcontroller.conf` a ogni esecuzione (cron ogni minuto), quindi i nuovi valori sono attivi dal minuto successivo. Se la soglia di spegnimento scelta è troppo bassa (sotto `battery.runtime.low` riportato dall'UPS), il salvataggio va comunque a buon fine ma la dashboard mostra un avviso, perché l'UPS rischierebbe di forzare il proprio shutdown prima che gli altri CT vengano spenti in ordine.
+- **Proxmox host** and **this CT's ID** (excluded from shutdown).
+- **Shutdown threshold** and **restore threshold**, in seconds of estimated runtime.
+- **Test SSH connection**: a read-only check (`pct list` over SSH) that confirms access works and previews which CTs would be shut down — without shutting anything down.
+- The header button turns amber whenever an emergency is actually in progress (other CTs already shut down, waiting for power to come back).
 
-## Bot Telegram
+Unlike Telegram/NUT, saving here **doesn't restart any service**: `ups-emergency.sh` re-reads `nutcontroller.conf` on every run (cron, every minute), so new values take effect from the next run. If the chosen shutdown threshold is too low (at or below the UPS's own `battery.runtime.low`), the save still succeeds but the dashboard shows a warning, because the UPS could force its own shutdown before the other CTs are shut down in order.
 
-Comandi disponibili (rispondono solo al `chat_id` collegato):
+## Telegram bot
 
-- `/start`, `/help` — messaggio di benvenuto e link alla dashboard.
-- `/stats` — stato, carica, autonomia, consumo attuali.
-- `/history` — ultimi 20 blackout registrati.
+Available commands (only responds to the linked `chat_id`):
 
-Le notifiche automatiche (inizio/fine blackout, batteria scarica, ecc.) partono da `ups-notify.sh` (hook `NOTIFYCMD` di `upsmon`) e da `ups-boot-check.sh` (se il riavvio del CT stesso è avvenuto durante un blackout ancora in corso).
+- `/start`, `/help` — welcome message and link to the dashboard.
+- `/stats` — current status, charge, runtime, power draw.
+- `/history` — last 20 recorded outages.
 
-## Logica di emergenza
+Automatic notifications (outage start/end, low battery, etc.) come from `ups-notify.sh` (the `upsmon` `NOTIFYCMD` hook) and `ups-boot-check.sh` (if the container itself rebooted during an outage that was still ongoing).
 
-`ups-emergency.sh`, eseguito da cron ogni minuto:
+## Emergency shutdown logic
 
-- Se l'autonomia stimata (`battery.runtime`) scende sotto `THRESHOLD_RUNTIME_LOW`, oppure l'UPS segnala `LB` (low battery), spegne via SSH tutti i CT Proxmox tranne `NUT_CT_ID` (`pct shutdown`).
-- Quando l'autonomia torna sopra `THRESHOLD_RUNTIME_RESTORE`, riaccende i CT spenti.
-- Lo stato dell'emergenza è tracciato in `/var/lib/nut/emergency.state` per non ripetere azioni già eseguite.
+`ups-emergency.sh`, run from cron every minute:
 
-`battery.charge` (la percentuale) di alcuni UPS aggiorna la stima "a scatti" e non è affidabile in tempo reale: per questo le soglie di emergenza usano `battery.runtime` (secondi), riportato direttamente dall'UPS, non un calcolo teorico Ah/W.
+- If estimated runtime (`battery.runtime`) drops below `THRESHOLD_RUNTIME_LOW`, or the UPS reports `LB` (low battery), it shuts down every Proxmox CT except `NUT_CT_ID` over SSH (`pct shutdown`).
+- Once runtime climbs back above `THRESHOLD_RUNTIME_RESTORE`, it powers the shut-down CTs back on.
+- Emergency state is tracked in `/var/lib/nut/emergency.state` so actions aren't repeated.
 
-## File di stato e log
+`battery.charge` (the percentage) on some UPS units updates its estimate in jumps and isn't reliable in real time — that's why the emergency thresholds use `battery.runtime` (seconds), reported directly by the UPS, instead of a theoretical Ah/W calculation.
 
-Tutti sotto `/var/lib/nut/` (esclusi dal repository, vedi `.gitignore`, perché sono stato runtime — non codice):
+## State and log files
 
-| File | Contenuto |
+All under `/var/lib/nut/` (excluded from the repository — see `.gitignore` — because they're runtime state, not code):
+
+| File | Contents |
 |---|---|
-| `blackout.flag` | Timestamp Unix di inizio blackout, presente solo mentre un blackout è in corso. |
-| `blackout.log` | Storico testuale di tutti gli eventi (`INIZIO`/`FINE blackout`), usato da dashboard e bot. |
-| `metrics.jsonl` | Una riga JSON al minuto (carica batteria, carico%, consumo), alimenta i grafici storici. |
-| `emergency.state` | Presente quando è attiva una procedura di emergenza (CT spenti in attesa di riaccensione). |
+| `blackout.flag` | Unix timestamp of outage start, present only while an outage is ongoing. |
+| `blackout.log` | Text history of all events (`INIZIO`/`FINE blackout`), used by the dashboard and bot. |
+| `metrics.jsonl` | One JSON line per minute (battery charge, load%, power draw), feeds the historical charts. |
+| `emergency.state` | Present while an emergency shutdown is active (CTs shut down, waiting to be restarted). |
 
-## Struttura del repository
+## Repository layout
 
 ```
 nutcontroller/
 ├── bin/
-│   ├── ups-web.py           # Dashboard Flask + bot Telegram + API di impostazione
-│   ├── ups-notify.sh        # Hook NOTIFYCMD di upsmon: notifiche Telegram sugli eventi UPS
-│   ├── ups-boot-check.sh    # Eseguito al boot: notifica se il riavvio è avvenuto durante un blackout
-│   └── ups-emergency.sh     # Cron: spegne/riaccende gli altri CT Proxmox in base all'autonomia
+│   ├── ups-web.py           # Flask dashboard + Telegram bot + guided-settings API
+│   ├── ups-notify.sh        # upsmon NOTIFYCMD hook: Telegram notifications on UPS events
+│   ├── ups-boot-check.sh    # Runs on boot: notifies if the reboot happened during an outage
+│   └── ups-emergency.sh     # Cron job: shuts down/restarts the other Proxmox CTs based on runtime
 ├── systemd/
 │   ├── ups-web.service
 │   └── ups-boot-check.service
 ├── config/
-│   └── nutcontroller.conf.example   # Template senza segreti: copiare in /etc/nut/nutcontroller.conf
+│   └── nutcontroller.conf.example   # Secret-free template: copy to /etc/nut/nutcontroller.conf
 ├── .gitignore
+├── LICENSE
 └── README.md
 ```
 
-## Sicurezza
+## Security
 
-- La dashboard e le sue API (incluse quelle di collegamento Telegram/NUT) **non hanno autenticazione**: pensata per una rete locale/fidata. Se esposta oltre la LAN, mettila dietro un reverse proxy con autenticazione o una VPN.
-- `nutcontroller.conf` contiene il token del bot Telegram in chiaro: non committarlo (già escluso da `.gitignore`), e limita i permessi del file (`chmod 600`) se il CT è multi-utente.
-- Lo spegnimento di emergenza (`ups-emergency.sh`) usa SSH verso l'host Proxmox: assicurati che la chiave usata abbia solo i permessi necessari (`pct shutdown`/`pct start`), non accesso root pieno se evitabile.
+- The dashboard and its API (including the Telegram/NUT/emergency guided-settings endpoints) have **no authentication**: it's built for a local/trusted network. If you expose it beyond your LAN, put it behind a reverse proxy with authentication, or a VPN.
+- `nutcontroller.conf` stores the Telegram bot token in plaintext: don't commit it (already excluded via `.gitignore`), and restrict its permissions (`chmod 600`) on multi-user systems.
+- Emergency shutdown (`ups-emergency.sh`) uses SSH to the Proxmox host: make sure the key it uses has only the permissions it needs (`pct shutdown`/`pct start`), not full root access if you can avoid it.
 
-## Limiti noti
+## Known limitations
 
-- `battery.charge` di alcuni UPS (in particolare i modelli con firmware "budget") resta fermo a 100% in float anche con batteria non del tutto carica: la dashboard mostra una stima più realistica basata sui dati storici post-blackout quando disponibile, ma il valore istantaneo va preso con cautela.
-- Il riavvio del driver da "Collega NUT" interrompe per pochi secondi la lettura dell'UPS: se in quella finestra si verifica un blackout reale, l'evento potrebbe non essere registrato correttamente.
-- Un solo dispositivo UPS (`myups`) è supportato dalla dashboard; installazioni con più UPS richiedono modifiche manuali a `ups.conf`.
+- `battery.charge` on some UPS units (especially "budget" firmware) stays pinned at 100% in float mode even when the battery isn't fully charged: the dashboard shows a more realistic post-outage estimate when available, but the instant value should be taken with a grain of salt.
+- Restarting the driver from **Connect NUT** interrupts UPS readings for a few seconds: if a real outage happens in that exact window, the event might not be recorded correctly.
+- Only a single UPS device (`myups`) is supported by the dashboard; multi-UPS setups require manual edits to `ups.conf`.
+
+## License
+
+[MIT](LICENSE) — see the `LICENSE` file.
