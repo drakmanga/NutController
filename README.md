@@ -58,35 +58,42 @@ All components run inside the same NUT-dedicated LXC container (original setup: 
 
 ## Installation
 
-1. Install NUT and set up your UPS (see [USB passthrough](#usb-passthrough-proxmox-lxc) below if running inside a Proxmox LXC, then use the [Connect NUT](#connect-nut) dashboard button, or configure `ups.conf` manually with `nut-scanner -U`).
-2. Copy the scripts:
+1. **Set the container's timezone.** All blackout timestamps (Telegram messages, the web history table) are generated from the system clock/timezone — there's no separate app-level setting for it. Freshly created containers/VMs are very often set to UTC by default, which silently offsets every logged time from your actual local time. Set it once, before anything else:
+   ```bash
+   timedatectl list-timezones | grep -i <your-city-or-region>   # find your zone name
+   timedatectl set-timezone <Region/City>                        # e.g. Europe/Rome, America/New_York
+   timedatectl status                                            # confirm it took
+   ```
+   This persists across reboots on its own (it just repoints `/etc/localtime`) — no further action needed. It only needs to be redone if the container is ever rebuilt from a fresh template. Using a named zone (not a fixed UTC offset) also means daylight saving changes are handled automatically from then on.
+2. Install NUT and set up your UPS (see [USB passthrough](#usb-passthrough-proxmox-lxc) below if running inside a Proxmox LXC, then use the [Connect NUT](#connect-nut) dashboard button, or configure `ups.conf` manually with `nut-scanner -U`).
+3. Copy the scripts:
    ```bash
    cp bin/ups-web.py bin/ups-notify.sh bin/ups-boot-check.sh bin/ups-emergency.sh /usr/local/bin/
    chmod +x /usr/local/bin/ups-*.sh
    ```
-3. Copy the example config (the Telegram token can be left empty — it's set from the dashboard):
+4. Copy the example config (the Telegram token can be left empty — it's set from the dashboard):
    ```bash
    cp config/nutcontroller.conf.example /etc/nut/nutcontroller.conf
    ```
-4. Install the systemd units:
+5. Install the systemd units:
    ```bash
    cp systemd/ups-web.service systemd/ups-boot-check.service /etc/systemd/system/
    systemctl daemon-reload
    systemctl enable --now ups-web.service
    systemctl enable ups-boot-check.service   # oneshot, runs automatically on boot
    ```
-5. Wire `ups-notify.sh` into `upsmon` in `/etc/nut/upsmon.conf`:
+6. Wire `ups-notify.sh` into `upsmon` in `/etc/nut/upsmon.conf`:
    ```
    NOTIFYCMD /usr/local/bin/ups-notify.sh
    NOTIFYFLAG ONLINE  SYSLOG+WALL+EXEC
    NOTIFYFLAG ONBATT  SYSLOG+WALL+EXEC
    NOTIFYFLAG LOWBATT SYSLOG+WALL+EXEC
    ```
-6. (Optional) Add `ups-emergency.sh` to cron for protecting the other containers:
+7. (Optional) Add `ups-emergency.sh` to cron for protecting the other containers:
    ```
    * * * * * /usr/local/bin/ups-emergency.sh
    ```
-7. Open `http://<container-ip>/` and connect Telegram and NUT from the two buttons in the top-right corner.
+8. Open `http://<container-ip>/` and connect Telegram and NUT from the two buttons in the top-right corner.
 
 ## USB passthrough (Proxmox LXC)
 
